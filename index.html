@@ -1,0 +1,172 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Web Novel Site</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="icon" href="favicon.ico" />
+</head>
+<body class="bg-gray-100 text-gray-900">
+  <header class="bg-white shadow p-4 flex justify-between items-center">
+    <h1 class="text-2xl font-bold text-purple-700">📚 Web Novel</h1>
+    <button onclick="loadBookmark()" class="text-yellow-600 font-semibold">📑 Load Bookmark</button>
+  </header>
+
+  <section id="last-read" class="max-w-6xl mx-auto p-4 text-center"></section>
+
+  <main class="max-w-6xl mx-auto p-6">
+    <div id="chapter-list" class="grid grid-cols-1 md:grid-cols-3 gap-4"></div>
+    <section id="chapter-reader" class="max-w-4xl mx-auto p-6 mt-10 bg-white rounded shadow"></section>
+  </main>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getFirestore, collection, getDocs, addDoc, query, where, serverTimestamp, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyB_SH4-fknHpGslKnze-pusJs7jWkHsKLY",
+      authDomain: "webnovelfree-967eb.firebaseapp.com",
+      projectId: "webnovelfree-967eb",
+      storageBucket: "webnovelfree-967eb.appspot.com",
+      messagingSenderId: "68843620394",
+      appId: "1:68843620394:web:11fbbe226175d13f985b53",
+      measurementId: "G-SCTQBYHJPS"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    let chapterList = [];
+    let currentIndex = 0;
+
+    async function loadChapters() {
+      const q = collection(db, "chapters");
+      const snapshot = await getDocs(q);
+      chapterList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const listContainer = document.getElementById("chapter-list");
+      listContainer.innerHTML = chapterList.map((ch, i) =>
+        `<div onclick="displayChapter(${i})" class="bg-white p-4 shadow rounded hover:bg-purple-50 cursor-pointer">
+          <h2 class="text-lg font-bold text-purple-700">${ch.title}</h2>
+        </div>`).join("");
+      updateLastReadDisplay();
+    }
+
+    window.displayChapter = (index) => {
+      currentIndex = index;
+      const reader = document.getElementById("chapter-reader");
+      const data = chapterList[index];
+      reader.innerHTML = `
+        <h2 class='text-2xl font-bold mb-2'>${data.title}</h2>
+        <p class='text-gray-700 whitespace-pre-wrap mb-4'>${data.content}</p>
+        <div class='flex justify-between mt-4'>
+          <button onclick="displayChapter(${index - 1})" ${index === 0 ? 'disabled class="opacity-50"' : 'class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700"'}>Previous</button>
+          <button onclick="saveBookmark(${index})" class="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600">Bookmark</button>
+          <button onclick="displayChapter(${index + 1})" ${index === chapterList.length - 1 ? 'disabled class="opacity-50"' : 'class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700"'}>Next</button>
+        </div>
+        <div class='mt-6'>
+          <div id='ratings-display' class='mb-2 text-sm'></div>
+          <div class='flex gap-2 mb-6'>
+            ${[1,2,3,4,5].map(i => `<button onclick='submitRating(${index}, ${i})' class='text-xl'>${'⭐'.repeat(i)}</button>`).join('')}
+          </div>
+        </div>
+        <div class='mt-8'>
+          <h3 class='text-xl font-semibold mb-2'>💬 Comments</h3>
+          <input id='comment-username' type='text' placeholder='Your name' class='w-full border p-2 rounded mb-2' />
+          <textarea id='comment-input' rows='3' class='w-full border p-2 rounded mb-2' placeholder='Write your comment...'></textarea>
+          <button onclick='submitComment(${index})' class='bg-purple-500 text-white px-4 py-1 rounded hover:bg-purple-600'>Post Comment</button>
+          <div id='comment-section' class='mt-4 space-y-2'></div>
+        </div>`;
+      loadComments(data.id);
+      loadRatings(data.id);
+      window.scrollTo({ top: reader.offsetTop, behavior: 'smooth' });
+    };
+
+    window.saveBookmark = (index) => {
+      localStorage.setItem("webnovel-bookmark", index);
+      alert("Bookmark saved!");
+    };
+
+    window.loadBookmark = () => {
+      const index = localStorage.getItem("webnovel-bookmark");
+      if (index !== null) displayChapter(Number(index));
+      else alert("No bookmark found.");
+    };
+
+    function updateLastReadDisplay() {
+      const index = localStorage.getItem('webnovel-bookmark');
+      const lastRead = document.getElementById('last-read');
+      if (index !== null && chapterList.length > 0) {
+        const data = chapterList[Number(index)];
+        lastRead.innerHTML = `<div class='text-lg text-purple-800 font-semibold'>📖 Last Read: <span class='underline cursor-pointer' onclick='displayChapter(${index})'>${data.title}</span></div>`;
+      } else {
+        lastRead.innerHTML = "<div class='text-gray-600'>No last read chapter found.</div>";
+      }
+    }
+
+    window.submitComment = async (index) => {
+      const username = document.getElementById('comment-username').value.trim();
+      const content = document.getElementById('comment-input').value.trim();
+      if (!content || !username) return alert('Username and comment cannot be empty');
+      const chapter = chapterList[index];
+      await addDoc(collection(db, "comments"), {
+        content,
+        username,
+        chapterId: chapter.id,
+        created: serverTimestamp()
+      });
+      document.getElementById('comment-input').value = '';
+      loadComments(chapter.id);
+    };
+
+    window.loadComments = async (chapterId) => {
+      const commentsContainer = document.getElementById('comment-section');
+      commentsContainer.innerHTML = '<p class="text-sm text-gray-500">Loading comments...</p>';
+      const q = query(collection(db, "comments"), where("chapterId", "==", chapterId));
+      const snapshot = await getDocs(q);
+      commentsContainer.innerHTML = '';
+      snapshot.forEach(docSnap => {
+        const comment = docSnap.data();
+        const div = document.createElement('div');
+        div.className = 'bg-gray-100 p-3 mb-2 rounded flex justify-between items-start';
+        div.innerHTML = `
+          <div>
+            <p class='text-sm font-semibold text-purple-700'>${comment.username}</p>
+            <p class='text-sm text-gray-700 mt-1'>${comment.content}</p>
+          </div>
+          <button onclick="deleteComment('${docSnap.id}', '${chapterId}')" class='text-xs text-red-600 hover:underline'>Delete</button>`;
+        commentsContainer.appendChild(div);
+      });
+    };
+
+    window.deleteComment = async (id, chapterId) => {
+      if (confirm('Delete this comment?')) {
+        await deleteDoc(doc(db, "comments", id));
+        loadComments(chapterId);
+      }
+    };
+
+    window.submitRating = async (index, stars) => {
+      const chapter = chapterList[index];
+      await addDoc(collection(db, "ratings"), {
+        chapterId: chapter.id,
+        stars,
+        created: serverTimestamp()
+      });
+      loadRatings(chapter.id);
+    };
+
+    window.loadRatings = async (chapterId) => {
+      const ratingsContainer = document.getElementById('ratings-display');
+      const q = query(collection(db, "ratings"), where("chapterId", "==", chapterId));
+      const snapshot = await getDocs(q);
+      const ratings = snapshot.docs.map(doc => doc.data().stars);
+      const avg = ratings.length ? (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1) : "N/A";
+      ratingsContainer.innerHTML = `<p class='text-sm text-gray-800'>⭐ Average Rating: <span class='font-semibold'>${avg}</span> (${ratings.length} votes)</p>`;
+    };
+
+    window.addEventListener("DOMContentLoaded", loadChapters);
+  </script>
+</body>
+</html>
